@@ -1,0 +1,21 @@
+package com.ishita.urlshortener.util;
+
+public class Base62Encoder {
+
+    private static final String CHARS =
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+    private static final int BASE = 62;
+
+    public static String encode(long id) {
+
+        StringBuilder sb = new StringBuilder();
+
+        while (id > 0) {
+            sb.append(CHARS.charAt((int) (id % BASE)));
+            id /= BASE;
+        }
+
+        return sb.reverse().toString();
+    }
+}
