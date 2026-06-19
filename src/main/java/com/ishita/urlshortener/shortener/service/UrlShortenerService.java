@@ -6,7 +6,7 @@ import com.ishita.urlshortener.shortener.exception.UrlNotFoundException;
 import com.ishita.urlshortener.shortener.model.Url;
 import com.ishita.urlshortener.shortener.repository.UrlRepository;
 import com.ishita.urlshortener.util.Base62Encoder;
-import com.ishita.urlshortener.util.IdGenerator;
+import com.ishita.urlshortener.util.SnowflakeIdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -26,6 +26,7 @@ public class UrlShortenerService {
     private final UrlRepository urlRepository;
     private final RedisService redisService;
     private final ClickService clickService;
+    private final SnowflakeIdGenerator snowflakeIdGenerator;
 
 
     public ShortenResponse shortenUrl(String longUrl) {
@@ -47,7 +48,7 @@ public class UrlShortenerService {
                 })
                 .orElseGet(() -> {
 
-                    long id = IdGenerator.generateId();
+                    long id = snowflakeIdGenerator.generateId();
 
                     String shortCode = Base62Encoder.encode(id);
 
