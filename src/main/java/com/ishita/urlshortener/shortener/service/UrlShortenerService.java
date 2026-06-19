@@ -1,29 +1,50 @@
 package com.ishita.urlshortener.shortener.service;
 
+import com.ishita.urlshortener.cache.RedisService;
 import com.ishita.urlshortener.shortener.dto.ShortenResponse;
+import com.ishita.urlshortener.shortener.exception.UrlNotFoundException;
 import com.ishita.urlshortener.shortener.model.Url;
 import com.ishita.urlshortener.shortener.repository.UrlRepository;
 import com.ishita.urlshortener.util.Base62Encoder;
 import com.ishita.urlshortener.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class UrlShortenerService {
 
+    private static final String BASE_URL = "http://localhost:8080/";
+
     private final UrlRepository urlRepository;
+    private final RedisService redisService;
+    private final ClickService clickService;
+
 
     public ShortenResponse shortenUrl(String longUrl) {
 
-        // check if already exists
+        log.info("Creating short URL for: {}", longUrl);
+
         return urlRepository.findByLongUrl(longUrl)
-                .map(url -> new ShortenResponse(
-                        "http://localhost:8080/" + url.getShortCode(),
-                        url.getShortCode()
-                ))
+                .map(existingUrl -> {
+
+                    log.info(
+                            "URL already shortened. Returning existing short code: {}",
+                            existingUrl.getShortCode()
+                    );
+
+                    return new ShortenResponse(
+                            BASE_URL + existingUrl.getShortCode(),
+                            existingUrl.getShortCode()
+                    );
+                })
                 .orElseGet(() -> {
 
                     long id = IdGenerator.generateId();
@@ -40,8 +61,10 @@ public class UrlShortenerService {
 
                     urlRepository.save(url);
 
+                    log.info("Short URL created successfully: {}", shortCode);
+
                     return new ShortenResponse(
-                            "http://localhost:8080/" + shortCode,
+                            BASE_URL + shortCode,
                             shortCode
                     );
                 });
@@ -49,14 +72,50 @@ public class UrlShortenerService {
 
     public String getOriginalUrl(String shortCode) {
 
+        log.info("Resolving shortCode: {}", shortCode);
+
+        // 1. CHECK CACHE FIRST
+        String cachedUrl = redisService.get(shortCode);
+
+        if (cachedUrl != null) {
+
+            log.info("Cache HIT for {}", shortCode);
+
+            executorService.submit(() ->
+
+                    clickService.incrementClick(shortCode)
+
+            );
+
+            return cachedUrl;
+        }
+
+        log.info("Cache MISS for {}", shortCode);
+
+        // 2. FALLBACK TO DATABASE
         Url url = urlRepository.findByShortCode(shortCode)
-                .orElseThrow(() -> new RuntimeException("Short URL not found"));
+                .orElseThrow(() -> {
 
-        // increment click count
-        url.setClickCount(url.getClickCount() + 1);
+                    log.error("Short URL not found: {}", shortCode);
 
-        urlRepository.save(url);
+                    return new UrlNotFoundException(shortCode);
+                });
+
+        // 3. STORE IN CACHE
+        redisService.set(shortCode, url.getLongUrl());
+
+        // 4. UPDATE CLICK COUNT
+        executorService.submit(() ->
+
+                clickService.incrementClick(shortCode)
+
+        );
+
+        log.info("Redirecting to original URL: {}", url.getLongUrl());
 
         return url.getLongUrl();
     }
+
+    private final ExecutorService executorService =
+            Executors.newFixedThreadPool(10);
 }
