@@ -27,6 +27,7 @@ public class UrlShortenerService {
     private final RedisService redisService;
     private final ClickService clickService;
     private final SnowflakeIdGenerator snowflakeIdGenerator;
+    private final AnalyticsService analyticsService;
 
 
     public ShortenResponse shortenUrl(String longUrl) {

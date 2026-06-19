@@ -2,7 +2,9 @@ package com.ishita.urlshortener.shortener.controller;
 
 import com.ishita.urlshortener.shortener.dto.ShortenRequest;
 import com.ishita.urlshortener.shortener.dto.ShortenResponse;
+import com.ishita.urlshortener.shortener.service.AnalyticsService;
 import com.ishita.urlshortener.shortener.service.UrlShortenerService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -16,12 +18,12 @@ import java.io.IOException;
 public class UrlController {
 
     private final UrlShortenerService service;
+    private final AnalyticsService analyticsService;
 
     @PostMapping("/shorten")
     public ResponseEntity<ShortenResponse> shortenUrl(
             @RequestBody @Valid ShortenRequest request
     ) {
-
         return ResponseEntity.ok(
                 service.shortenUrl(request.longUrl())
         );
@@ -30,10 +32,19 @@ public class UrlController {
     @GetMapping("/{shortCode}")
     public void redirect(
             @PathVariable String shortCode,
-            HttpServletResponse response
+            HttpServletResponse response,
+            HttpServletRequest request
     ) throws IOException {
 
         String originalUrl = service.getOriginalUrl(shortCode);
+
+        // ⚠️ currently synchronous (we will fix next)
+        analyticsService.recordClick(
+                shortCode,
+                request.getRemoteAddr(),
+                request.getHeader("User-Agent"),
+                request.getHeader("Referer")
+        );
 
         response.sendRedirect(originalUrl);
     }
