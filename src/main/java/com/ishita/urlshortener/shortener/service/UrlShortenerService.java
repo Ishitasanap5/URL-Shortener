@@ -6,15 +6,14 @@ import com.ishita.urlshortener.shortener.exception.UrlNotFoundException;
 import com.ishita.urlshortener.shortener.model.Url;
 import com.ishita.urlshortener.shortener.repository.UrlRepository;
 import com.ishita.urlshortener.util.Base62Encoder;
+import com.ishita.urlshortener.util.BloomFilter;
 import com.ishita.urlshortener.util.SnowflakeIdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 @Service
 @RequiredArgsConstructor
@@ -25,32 +24,23 @@ public class UrlShortenerService {
 
     private final UrlRepository urlRepository;
     private final RedisService redisService;
-    private final ClickService clickService;
     private final SnowflakeIdGenerator snowflakeIdGenerator;
-    private final AnalyticsService analyticsService;
-
+    private final AnalyticsQueryService analyticsQueryService;
+    private final BloomFilter bloomFilter;
+    private final ExecutorService executorService;
 
     public ShortenResponse shortenUrl(String longUrl) {
 
         log.info("Creating short URL for: {}", longUrl);
 
         return urlRepository.findByLongUrl(longUrl)
-                .map(existingUrl -> {
-
-                    log.info(
-                            "URL already shortened. Returning existing short code: {}",
-                            existingUrl.getShortCode()
-                    );
-
-                    return new ShortenResponse(
-                            BASE_URL + existingUrl.getShortCode(),
-                            existingUrl.getShortCode()
-                    );
-                })
+                .map(existingUrl -> new ShortenResponse(
+                        BASE_URL + existingUrl.getShortCode(),
+                        existingUrl.getShortCode()
+                ))
                 .orElseGet(() -> {
 
                     long id = snowflakeIdGenerator.generateId();
-
                     String shortCode = Base62Encoder.encode(id);
 
                     Url url = Url.builder()
@@ -62,6 +52,9 @@ public class UrlShortenerService {
                             .build();
 
                     urlRepository.save(url);
+
+                    // IMPORTANT: update bloom filter
+                    bloomFilter.add(shortCode);
 
                     log.info("Short URL created successfully: {}", shortCode);
 
@@ -76,7 +69,12 @@ public class UrlShortenerService {
 
         log.info("Resolving shortCode: {}", shortCode);
 
-        // 1. CHECK CACHE FIRST
+        // 1. Bloom filter fast reject
+        if (!bloomFilter.mightContain(shortCode)) {
+            throw new UrlNotFoundException(shortCode);
+        }
+
+        // 2. Redis cache check
         String cachedUrl = redisService.get(shortCode);
 
         if (cachedUrl != null) {
@@ -84,9 +82,12 @@ public class UrlShortenerService {
             log.info("Cache HIT for {}", shortCode);
 
             executorService.submit(() ->
-
-                    clickService.incrementClick(shortCode)
-
+                    analyticsQueryService.recordClick(
+                            shortCode,
+                            null,
+                            null,
+                            null
+                    )
             );
 
             return cachedUrl;
@@ -94,30 +95,23 @@ public class UrlShortenerService {
 
         log.info("Cache MISS for {}", shortCode);
 
-        // 2. FALLBACK TO DATABASE
+        // 3. DB fallback
         Url url = urlRepository.findByShortCode(shortCode)
-                .orElseThrow(() -> {
+                .orElseThrow(() -> new UrlNotFoundException(shortCode));
 
-                    log.error("Short URL not found: {}", shortCode);
-
-                    return new UrlNotFoundException(shortCode);
-                });
-
-        // 3. STORE IN CACHE
+        // 4. Cache it
         redisService.set(shortCode, url.getLongUrl());
 
-        // 4. UPDATE CLICK COUNT
+        // 5. Async analytics
         executorService.submit(() ->
-
-                clickService.incrementClick(shortCode)
-
+                analyticsQueryService.recordClick(
+                        shortCode,
+                        null,
+                        null,
+                        null
+                )
         );
-
-        log.info("Redirecting to original URL: {}", url.getLongUrl());
 
         return url.getLongUrl();
     }
-
-    private final ExecutorService executorService =
-            Executors.newFixedThreadPool(10);
 }
