@@ -24,4 +24,14 @@ public class RedisService {
         return redisTemplate.opsForValue()
                 .get(PREFIX + shortCode);
     }
+    public Long increment(String key) {
+
+        return redisTemplate.opsForValue()
+                .increment(key);
+    }
+    public void expire(String key, Duration duration){
+
+        redisTemplate.expire(key, duration);
+
+    }
 }
