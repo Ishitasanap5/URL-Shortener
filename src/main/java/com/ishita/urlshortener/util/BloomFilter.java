@@ -12,27 +12,39 @@ public class BloomFilter {
         this.bitSet = new BitSet(size);
     }
 
+
     private int hash1(String value) {
-        return Math.abs(value.hashCode()) % size;
+        return mix(value.hashCode());
     }
 
     private int hash2(String value) {
-        return Math.abs((value.hashCode() * 31)) % size;
+        return mix(value.hashCode() ^ (value.hashCode() >>> 16));
     }
 
-    private int hash3(String value) {
-        return Math.abs((value.hashCode() * 17)) % size;
+    private int mix(int hash) {
+        return (hash & 0x7fffffff) % size;
     }
 
-    public void add(String value) {
-        bitSet.set(hash1(value));
-        bitSet.set(hash2(value));
-        bitSet.set(hash3(value));
+    public synchronized void add(String value) {
+
+        int h1 = hash1(value);
+        int h2 = hash2(value);
+        int h3 = (h1 + h2) % size;
+
+        bitSet.set(h1);
+        bitSet.set(h2);
+        bitSet.set(h3);
     }
+
 
     public boolean mightContain(String value) {
-        return bitSet.get(hash1(value))
-                && bitSet.get(hash2(value))
-                && bitSet.get(hash3(value));
+
+        int h1 = hash1(value);
+        int h2 = hash2(value);
+        int h3 = (h1 + h2) % size;
+
+        return bitSet.get(h1)
+                && bitSet.get(h2)
+                && bitSet.get(h3);
     }
 }

@@ -17,6 +17,9 @@ public class Url {
     @Id
     private Long id;
 
+    @Version
+    private Long version;
+
     @Column(nullable = false, unique = true)
     private String shortCode;
 
