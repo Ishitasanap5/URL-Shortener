@@ -1,6 +1,5 @@
 package com.ishita.urlshortener.shortener.service;
 
-
 import com.ishita.urlshortener.cache.RedisService;
 import com.ishita.urlshortener.shortener.dto.ShortenResponse;
 import com.ishita.urlshortener.shortener.exception.UrlNotFoundException;
@@ -27,7 +26,6 @@ public class UrlShortenerService {
     private final SnowflakeIdGenerator snowflakeIdGenerator;
     private final BloomFilter bloomFilter;
 
-
     // CREATE SHORT URL
     public ShortenResponse shortenUrl(String longUrl) {
 
@@ -48,12 +46,10 @@ public class UrlShortenerService {
                             .shortCode(shortCode)
                             .longUrl(longUrl)
                             .createdAt(Instant.now())
-                            .clickCount(0L)
                             .build();
 
                     urlRepository.save(url);
 
-                    // Add to Bloom Filter (important for fast lookup)
                     bloomFilter.add(shortCode);
 
                     log.info("Short URL created successfully: {}", shortCode);
@@ -65,18 +61,15 @@ public class UrlShortenerService {
                 });
     }
 
-
     // REDIRECT LOGIC
     public String getOriginalUrl(String shortCode) {
 
         log.info("Resolving shortCode: {}", shortCode);
 
-        // 1. Bloom filter fast reject
         if (!bloomFilter.mightContain(shortCode)) {
             throw new UrlNotFoundException(shortCode);
         }
 
-        // 2. Redis cache check
         String cachedUrl = redisService.get(shortCode);
 
         if (cachedUrl != null) {
@@ -86,14 +79,11 @@ public class UrlShortenerService {
 
         log.info("Cache MISS for {}", shortCode);
 
-        // 3. DB fallback
         Url url = urlRepository.findByShortCode(shortCode)
                 .orElseThrow(() -> new UrlNotFoundException(shortCode));
 
-        // 4. Populate cache
         redisService.set(shortCode, url.getLongUrl());
 
         return url.getLongUrl();
     }
 }
-
