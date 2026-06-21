@@ -1,5 +1,6 @@
 package com.ishita.urlshortener.shortener.service;
 
+
 import com.ishita.urlshortener.cache.RedisService;
 import com.ishita.urlshortener.shortener.dto.ShortenResponse;
 import com.ishita.urlshortener.shortener.exception.UrlNotFoundException;
@@ -13,7 +14,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.util.concurrent.ExecutorService;
 
 @Service
 @RequiredArgsConstructor
@@ -25,10 +25,10 @@ public class UrlShortenerService {
     private final UrlRepository urlRepository;
     private final RedisService redisService;
     private final SnowflakeIdGenerator snowflakeIdGenerator;
-    private final AnalyticsQueryService analyticsQueryService;
     private final BloomFilter bloomFilter;
-    private final ExecutorService executorService;
 
+
+    // CREATE SHORT URL
     public ShortenResponse shortenUrl(String longUrl) {
 
         log.info("Creating short URL for: {}", longUrl);
@@ -53,7 +53,7 @@ public class UrlShortenerService {
 
                     urlRepository.save(url);
 
-                    // IMPORTANT: update bloom filter
+                    // Add to Bloom Filter (important for fast lookup)
                     bloomFilter.add(shortCode);
 
                     log.info("Short URL created successfully: {}", shortCode);
@@ -65,6 +65,8 @@ public class UrlShortenerService {
                 });
     }
 
+
+    // REDIRECT LOGIC
     public String getOriginalUrl(String shortCode) {
 
         log.info("Resolving shortCode: {}", shortCode);
@@ -78,18 +80,7 @@ public class UrlShortenerService {
         String cachedUrl = redisService.get(shortCode);
 
         if (cachedUrl != null) {
-
             log.info("Cache HIT for {}", shortCode);
-
-            executorService.submit(() ->
-                    analyticsQueryService.recordClick(
-                            shortCode,
-                            null,
-                            null,
-                            null
-                    )
-            );
-
             return cachedUrl;
         }
 
@@ -99,19 +90,10 @@ public class UrlShortenerService {
         Url url = urlRepository.findByShortCode(shortCode)
                 .orElseThrow(() -> new UrlNotFoundException(shortCode));
 
-        // 4. Cache it
+        // 4. Populate cache
         redisService.set(shortCode, url.getLongUrl());
-
-        // 5. Async analytics
-        executorService.submit(() ->
-                analyticsQueryService.recordClick(
-                        shortCode,
-                        null,
-                        null,
-                        null
-                )
-        );
 
         return url.getLongUrl();
     }
 }
+

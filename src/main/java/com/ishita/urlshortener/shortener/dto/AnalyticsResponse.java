@@ -1,10 +1,13 @@
 package com.ishita.urlshortener.shortener.dto;
 
-import java.util.List;
+import java.util.Map;
 
 public record AnalyticsResponse(
+
         String shortCode,
         long totalClicks,
-        List<DailyClickDto> dailyClicks,
-        List<ReferrerDto> referrers
-) {}
+        Map<String, Long> clicksByReferrer,
+        Map<String, Long> clicksByDay
+
+) {
+}
