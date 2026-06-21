@@ -1,6 +1,8 @@
 package com.ishita.urlshortener.shortener.service;
 
 import com.ishita.urlshortener.shortener.dto.AnalyticsResponse;
+import com.ishita.urlshortener.shortener.dto.DailyClickDto;
+import com.ishita.urlshortener.shortener.dto.ReferrerDto;
 import com.ishita.urlshortener.shortener.model.ClickEvent;
 import com.ishita.urlshortener.shortener.repository.ClickEventRepository;
 import lombok.RequiredArgsConstructor;
@@ -14,34 +16,28 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AnalyticsQueryService {
 
-    private final ClickEventRepository clickEventRepository;
+    private final ClickEventRepository repo;
 
     public AnalyticsResponse getAnalytics(String shortCode) {
 
-        List<ClickEvent> events =
-                clickEventRepository.findByShortCode(shortCode);
+        Long totalClicks = repo.totalClicks(shortCode);
 
-        long totalClicks = events.size();
+        List<DailyClickDto> daily = repo.findDailyClicks(shortCode)
+                .stream()
+                .map(r -> new DailyClickDto(
+                        r[0].toString(),
+                        Long.parseLong(r[1].toString())
+                ))
+                .toList();
 
-        Map<String, Long> clicksByReferrer =
-                events.stream()
-                        .collect(Collectors.groupingBy(
-                                e -> e.getReferrer() == null ? "direct" : e.getReferrer(),
-                                Collectors.counting()
-                        ));
+        List<ReferrerDto> referrers = repo.findReferrerStats(shortCode)
+                .stream()
+                .map(r -> new ReferrerDto(
+                        r[0] == null ? "direct" : r[0].toString(),
+                        Long.parseLong(r[1].toString())
+                ))
+                .toList();
 
-        Map<String, Long> clicksByDay =
-                events.stream()
-                        .collect(Collectors.groupingBy(
-                                e -> e.getClickedAt().toString().substring(0, 10),
-                                Collectors.counting()
-                        ));
-
-        return new AnalyticsResponse(
-                shortCode,
-                totalClicks,
-                clicksByReferrer,
-                clicksByDay
-        );
+        return new AnalyticsResponse(totalClicks, daily, referrers);
     }
 }

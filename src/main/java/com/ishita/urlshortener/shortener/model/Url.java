@@ -25,5 +25,4 @@ public class Url {
 
     private Instant createdAt;
 
-    private Long clickCount;
 }
