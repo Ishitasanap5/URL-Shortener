@@ -1,8 +1,8 @@
 package com.ishita.urlshortener.shortener.controller;
 
+import com.ishita.urlshortener.shortener.dto.ClickEventMessage;
 import com.ishita.urlshortener.shortener.dto.ShortenRequest;
 import com.ishita.urlshortener.shortener.dto.ShortenResponse;
-import com.ishita.urlshortener.shortener.service.AnalyticsQueryService;
 import com.ishita.urlshortener.shortener.service.KafkaProducerService;
 import com.ishita.urlshortener.shortener.service.UrlShortenerService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,7 +20,6 @@ import java.io.IOException;
 public class UrlController {
 
     private final UrlShortenerService service;
-    private final AnalyticsQueryService analyticsQueryService;
     private final KafkaProducerService kafkaProducerService;
     @PostMapping("/shorten")
     public ResponseEntity<ShortenResponse> shortenUrl(
@@ -40,12 +39,15 @@ public class UrlController {
 
         String originalUrl = service.getOriginalUrl(shortCode);
 
-        String event = shortCode + "|" +
-                request.getRemoteAddr() + "|" +
-                request.getHeader("User-Agent") + "|" +
-                request.getHeader("Referer");
+        ClickEventMessage event = new ClickEventMessage(
+                shortCode,
+                request.getRemoteAddr(),
+                request.getHeader("User-Agent"),
+                request.getHeader("Referer")
+        );
 
         kafkaProducerService.sendClickEvent(event);
+
 
         response.sendRedirect(originalUrl);
     }
