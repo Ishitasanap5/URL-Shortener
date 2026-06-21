@@ -8,9 +8,13 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.Instant;
-
+import lombok.extern.slf4j.Slf4j;
 @RestControllerAdvice
+@Slf4j
 public class GlobalExceptionHandler {
+
+    private static final String GENERIC_ERROR_MESSAGE =
+            "Internal server error. Please try again later.";
 
     @ExceptionHandler(UrlNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleUrlNotFound(
@@ -20,7 +24,7 @@ public class GlobalExceptionHandler {
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),
                 HttpStatus.NOT_FOUND.value(),
-                ex.getMessage()
+                ex.getMessage() // safe (controlled exception)
         );
 
         return ResponseEntity
@@ -53,10 +57,13 @@ public class GlobalExceptionHandler {
             Exception ex
     ) {
 
+        // 🔴 log full internal error (NEVER expose to client)
+        log.error("Unhandled exception occurred", ex);
+
         ErrorResponse error = new ErrorResponse(
                 Instant.now(),
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                ex.getMessage()
+                GENERIC_ERROR_MESSAGE
         );
 
         return ResponseEntity
