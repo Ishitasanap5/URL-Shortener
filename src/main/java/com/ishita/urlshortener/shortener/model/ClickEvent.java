@@ -6,7 +6,12 @@ import lombok.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "click_events")
+@Table(
+        name = "click_events",
+        indexes = {
+                @Index(name = "idx_click_short_code", columnList = "shortCode")
+        }
+)
 @Getter
 @Setter
 @Builder
@@ -16,8 +21,9 @@ public class ClickEvent {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private long id;
+    private Long id;   // FIXED: boxed Long instead of primitive long
 
+    @Column(nullable = false)
     private String shortCode;
 
     private Instant clickedAt;
@@ -27,5 +33,4 @@ public class ClickEvent {
     private String userAgent;
 
     private String referrer;
-
 }
