@@ -12,8 +12,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-
 import java.io.IOException;
+import java.time.Instant;
 
 @RestController
 @RequiredArgsConstructor
@@ -21,13 +21,12 @@ public class UrlController {
 
     private final UrlShortenerService service;
     private final KafkaProducerService kafkaProducerService;
+
     @PostMapping("/shorten")
     public ResponseEntity<ShortenResponse> shortenUrl(
             @RequestBody @Valid ShortenRequest request
     ) {
-        return ResponseEntity.ok(
-                service.shortenUrl(request.longUrl())
-        );
+        return ResponseEntity.ok(service.shortenUrl(request.longUrl()));
     }
 
     @GetMapping("/{shortCode}")
@@ -39,15 +38,16 @@ public class UrlController {
 
         String originalUrl = service.getOriginalUrl(shortCode);
 
+        // Correctly capture and route the event payload with click timestamp
         ClickEventMessage event = new ClickEventMessage(
                 shortCode,
                 request.getRemoteAddr(),
                 request.getHeader("User-Agent"),
-                request.getHeader("Referer")
+                request.getHeader("Referer"),
+                Instant.now()
         );
 
         kafkaProducerService.sendClickEvent(event);
-
 
         response.sendRedirect(originalUrl);
     }

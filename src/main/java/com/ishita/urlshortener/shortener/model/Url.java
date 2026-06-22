@@ -26,7 +26,7 @@ public class Url {
     @Column(nullable = false, unique = true)
     private String shortCode;
 
-    @Column(nullable = false, unique = true, columnDefinition = "TEXT")
+    @Column(nullable = false, unique = true, length = 2048)
     private String longUrl;
 
     private Instant createdAt;

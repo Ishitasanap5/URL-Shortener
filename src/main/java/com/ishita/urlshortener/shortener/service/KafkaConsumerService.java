@@ -36,10 +36,10 @@ public class KafkaConsumerService {
 
             ClickEvent event = ClickEvent.builder()
                     .shortCode(e.getShortCode())
-                    .clickedAt(Instant.now())
+                    .clickedAt(e.getClickedAt())
                     .ipAddress(e.getIpAddress())
                     .userAgent(e.getUserAgent())
-                    .referrer(e.getReferer())
+                    .referrer(e.getReferrer())
                     .build();
 
             clickEventRepository.save(event);
