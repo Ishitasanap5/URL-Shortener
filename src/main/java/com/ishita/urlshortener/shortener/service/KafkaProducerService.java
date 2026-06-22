@@ -11,19 +11,11 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class KafkaProducerService {
 
-    private final KafkaTemplate<String, String> kafkaTemplate;
-    private final ObjectMapper objectMapper;
+    private final KafkaTemplate<String, ClickEventMessage> kafkaTemplate;
 
     private static final String TOPIC = "click-events";
 
     public void sendClickEvent(ClickEventMessage event) {
-
-        try {
-            String message = objectMapper.writeValueAsString(event);
-            kafkaTemplate.send(TOPIC, message);
-
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize Kafka event", e);
-        }
+        kafkaTemplate.send(TOPIC, event);
     }
 }

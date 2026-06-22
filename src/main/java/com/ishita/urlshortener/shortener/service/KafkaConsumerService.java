@@ -1,8 +1,11 @@
 package com.ishita.urlshortener.shortener.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ishita.urlshortener.shortener.dto.ClickEventMessage;
 import com.ishita.urlshortener.shortener.model.ClickEvent;
 import com.ishita.urlshortener.shortener.repository.ClickEventRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
@@ -10,23 +13,49 @@ import java.time.Instant;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class KafkaConsumerService {
 
     private final ClickEventRepository clickEventRepository;
 
-    @KafkaListener(topics = "click-events", groupId = "analytics-group")
+    private final ObjectMapper objectMapper;
+
+    @KafkaListener(
+            topics = "click-events",
+            groupId = "analytics-group"
+    )
     public void consume(String message) {
 
-        String[] parts = message.split("\\|");
+        try {
 
-        ClickEvent event = ClickEvent.builder()
-                .shortCode(parts[0])
-                .ipAddress(parts[1])
-                .userAgent(parts[2])
-                .referrer(parts[3])
-                .clickedAt(Instant.now())
-                .build();
+            ClickEventMessage e =
+                    objectMapper.readValue(
+                            message,
+                            ClickEventMessage.class
+                    );
 
-        clickEventRepository.save(event);
+            ClickEvent event = ClickEvent.builder()
+                    .shortCode(e.getShortCode())
+                    .clickedAt(Instant.now())
+                    .ipAddress(e.getIpAddress())
+                    .userAgent(e.getUserAgent())
+                    .referrer(e.getReferer())
+                    .build();
+
+            clickEventRepository.save(event);
+
+            log.info(
+                    "Saved click event for shortCode: {}",
+                    e.getShortCode()
+            );
+
+        } catch (Exception ex) {
+
+            log.error(
+                    "Failed to process Kafka message: {}",
+                    message,
+                    ex
+            );
+        }
     }
 }
