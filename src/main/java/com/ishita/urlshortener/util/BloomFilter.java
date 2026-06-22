@@ -16,41 +16,67 @@ public class BloomFilter {
         this.bitSet = new BitSet(size);
     }
 
-
-    // ADD (WRITE LOCK)
+    // -------------------------
+    // ADD
+    // -------------------------
     public void add(String value) {
         lock.writeLock().lock();
         try {
-            int hash = value.hashCode();
-            int index1 = Math.abs(hash % size);
-            int index2 = Math.abs((hash * 31) % size);
-            int index3 = Math.abs((hash * 17) % size);
+            int[] indices = getIndices(value);
 
-            bitSet.set(index1);
-            bitSet.set(index2);
-            bitSet.set(index3);
+            for (int index : indices) {
+                bitSet.set(index);
+            }
 
         } finally {
             lock.writeLock().unlock();
         }
     }
 
-
-    // CHECK (READ LOCK)
+    // -------------------------
+    // CHECK
+    // -------------------------
     public boolean mightContain(String value) {
         lock.readLock().lock();
         try {
-            int hash = value.hashCode();
-            int index1 = Math.abs(hash % size);
-            int index2 = Math.abs((hash * 31) % size);
-            int index3 = Math.abs((hash * 17) % size);
+            int[] indices = getIndices(value);
 
-            return bitSet.get(index1)
-                    && bitSet.get(index2)
-                    && bitSet.get(index3);
+            for (int index : indices) {
+                if (!bitSet.get(index)) {
+                    return false;
+                }
+            }
+            return true;
 
         } finally {
             lock.readLock().unlock();
         }
+    }
+
+    // -------------------------
+    // HASHING (FIXED)
+    // -------------------------
+    private int[] getIndices(String value) {
+
+        int hash1 = value.hashCode();
+        int hash2 = murmurLike(hash1);
+        int hash3 = hash2 ^ (hash2 >>> 16);
+
+        return new int[] {
+                normalize(hash1),
+                normalize(hash2),
+                normalize(hash3)
+        };
+    }
+
+    private int murmurLike(int hash) {
+        hash ^= (hash >>> 16);
+        hash *= 0x85ebca6b;
+        hash ^= (hash >>> 13);
+        return hash;
+    }
+
+    private int normalize(int hash) {
+        return (hash & 0x7fffffff) % size;
     }
 }
