@@ -14,7 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-
+import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -27,6 +27,7 @@ public class UrlShortenerService {
     private final BloomFilter bloomFilter;
 
     // CREATE SHORT URL
+    @Transactional
     public ShortenResponse shortenUrl(String longUrl) {
 
         log.info("Creating short URL for: {}", longUrl);

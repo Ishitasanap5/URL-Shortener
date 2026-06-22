@@ -6,7 +6,13 @@ import lombok.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "urls")
+@Table(
+        name = "urls",
+        uniqueConstraints = {
+                @UniqueConstraint(columnNames = "shortCode"),
+                @UniqueConstraint(columnNames = "longUrl")
+        }
+)
 @Getter
 @Setter
 @Builder
@@ -17,15 +23,11 @@ public class Url {
     @Id
     private Long id;
 
-    @Version
-    private Long version;
-
     @Column(nullable = false, unique = true)
     private String shortCode;
 
-    @Column(nullable = false, columnDefinition = "TEXT")
+    @Column(nullable = false, unique = true, columnDefinition = "TEXT")
     private String longUrl;
 
     private Instant createdAt;
-
 }
