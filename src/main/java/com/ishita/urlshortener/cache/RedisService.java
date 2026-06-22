@@ -16,12 +16,28 @@ public class RedisService {
     private static final Duration TTL = Duration.ofDays(7);
 
     public void set(String shortCode, String longUrl) {
+
         redisTemplate.opsForValue()
                 .set(PREFIX + shortCode, longUrl, TTL);
     }
 
     public String get(String shortCode) {
+
         return redisTemplate.opsForValue()
                 .get(PREFIX + shortCode);
+    }
+
+
+
+    public Long increment(String key) {
+
+        return redisTemplate
+                .opsForValue()
+                .increment(key);
+    }
+
+    public void expire(String key, Duration ttl) {
+
+        redisTemplate.expire(key, ttl);
     }
 }
