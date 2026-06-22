@@ -1,6 +1,7 @@
 package com.ishita.urlshortener.shortener.service;
 
 import com.ishita.urlshortener.cache.RedisService;
+import com.ishita.urlshortener.config.AppConfig;
 import com.ishita.urlshortener.shortener.dto.ShortenResponse;
 import com.ishita.urlshortener.shortener.exception.UrlNotFoundException;
 import com.ishita.urlshortener.shortener.model.Url;
@@ -19,8 +20,7 @@ import java.time.Instant;
 @Slf4j
 public class UrlShortenerService {
 
-    private static final String BASE_URL = "http://localhost:8080/";
-
+    private final AppConfig appConfig;
     private final UrlRepository urlRepository;
     private final RedisService redisService;
     private final SnowflakeIdGenerator snowflakeIdGenerator;
@@ -33,7 +33,7 @@ public class UrlShortenerService {
 
         return urlRepository.findByLongUrl(longUrl)
                 .map(existingUrl -> new ShortenResponse(
-                        BASE_URL + existingUrl.getShortCode(),
+                        appConfig.getBaseUrl() + existingUrl.getShortCode(),
                         existingUrl.getShortCode()
                 ))
                 .orElseGet(() -> {
@@ -55,7 +55,7 @@ public class UrlShortenerService {
                     log.info("Short URL created successfully: {}", shortCode);
 
                     return new ShortenResponse(
-                            BASE_URL + shortCode,
+                            appConfig.getBaseUrl() + shortCode,
                             shortCode
                     );
                 });
