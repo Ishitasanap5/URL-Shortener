@@ -9,28 +9,22 @@ import java.util.List;
 
 public interface ClickEventRepository extends JpaRepository<ClickEvent, Long> {
 
-    @Query("""
-        SELECT COUNT(c)
-        FROM ClickEvent c
-        WHERE c.shortCode = :shortCode
-    """)
+    @Query("SELECT COUNT(c) FROM ClickEvent c WHERE c.shortCode = :shortCode")
     Long totalClicks(@Param("shortCode") String shortCode);
 
-    @Query("""
-        SELECT FUNCTION('DATE', c.clickedAt), COUNT(c)
-        FROM ClickEvent c
-        WHERE c.shortCode = :shortCode
-        GROUP BY FUNCTION('DATE', c.clickedAt)
-        ORDER BY FUNCTION('DATE', c.clickedAt)
-    """)
+    @Query(
+            value = "SELECT DATE(clicked_at) as date, COUNT(*) as count " +
+                    "FROM click_events WHERE short_code = :shortCode " +
+                    "GROUP BY DATE(clicked_at) ORDER BY DATE(clicked_at)",
+            nativeQuery = true
+    )
     List<Object[]> findDailyClicks(@Param("shortCode") String shortCode);
 
-    @Query("""
-        SELECT c.referrer, COUNT(c)
-        FROM ClickEvent c
-        WHERE c.shortCode = :shortCode
-        GROUP BY c.referrer
-        ORDER BY COUNT(c) DESC
-    """)
+    @Query(
+            value = "SELECT referrer, COUNT(*) as count " +
+                    "FROM click_events WHERE short_code = :shortCode " +
+                    "GROUP BY referrer ORDER BY count DESC",
+            nativeQuery = true
+    )
     List<Object[]> findReferrerStats(@Param("shortCode") String shortCode);
 }

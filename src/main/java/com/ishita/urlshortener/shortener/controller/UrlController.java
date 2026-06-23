@@ -38,7 +38,6 @@ public class UrlController {
 
         String originalUrl = service.getOriginalUrl(shortCode);
 
-        // Correctly capture and route the event payload with click timestamp
         ClickEventMessage event = new ClickEventMessage(
                 shortCode,
                 request.getRemoteAddr(),

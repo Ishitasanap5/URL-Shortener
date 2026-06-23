@@ -16,9 +16,6 @@ public class BloomFilter {
         this.bitSet = new BitSet(size);
     }
 
-    // -------------------------
-    // ADD
-    // -------------------------
     public void add(String value) {
         lock.writeLock().lock();
         try {
@@ -33,9 +30,6 @@ public class BloomFilter {
         }
     }
 
-    // -------------------------
-    // CHECK
-    // -------------------------
     public boolean mightContain(String value) {
         lock.readLock().lock();
         try {
@@ -53,19 +47,16 @@ public class BloomFilter {
         }
     }
 
-    // -------------------------
-    // HASHING (FIXED)
-    // -------------------------
+
     private int[] getIndices(String value) {
-
-        int hash1 = value.hashCode();
-        int hash2 = murmurLike(hash1);
-        int hash3 = hash2 ^ (hash2 >>> 16);
-
-        return new int[] {
-                normalize(hash1),
-                normalize(hash2),
-                normalize(hash3)
+        int h1 = value.hashCode();
+        int h2 = murmurLike(h1);
+        // Double hashing: gi(x) = h1(x) + i * h2(x)
+        // Gives k independent indices from just two base hashes
+        return new int[]{
+                normalize(h1),
+                normalize(h1 + h2),
+                normalize(h1 + 2 * h2)
         };
     }
 

@@ -8,6 +8,8 @@ public class Base62Encoder {
     private static final int BASE = 62;
 
     public static String encode(long id) {
+        if (id < 0) throw new IllegalArgumentException("ID must be non-negative: " + id);
+        if (id == 0) return String.valueOf(CHARS.charAt(0));
 
         StringBuilder sb = new StringBuilder();
 

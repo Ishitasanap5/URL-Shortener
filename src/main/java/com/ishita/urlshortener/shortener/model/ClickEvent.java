@@ -9,7 +9,7 @@ import java.time.Instant;
 @Table(
         name = "click_events",
         indexes = {
-                @Index(name = "idx_click_short_code", columnList = "shortCode")
+                @Index(name = "idx_click_short_code", columnList = "short_code")
         }
 )
 @Getter
@@ -21,15 +21,18 @@ public class ClickEvent {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;   // FIXED: boxed Long instead of primitive long
+    private Long id;
 
-    @Column(nullable = false)
+    @Column(nullable = false, name = "short_code")
     private String shortCode;
 
+    @Column(name = "clicked_at")
     private Instant clickedAt;
 
+    @Column(name = "ip_address")
     private String ipAddress;
 
+    @Column(name = "user_agent")
     private String userAgent;
 
     private String referrer;

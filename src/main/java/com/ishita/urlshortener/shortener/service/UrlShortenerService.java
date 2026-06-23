@@ -28,20 +28,14 @@ public class UrlShortenerService {
     private final SnowflakeIdGenerator snowflakeIdGenerator;
     private final BloomFilter bloomFilter;
 
-
+    // INSERT-FIRST: no pre-check SELECT, dedup handled by DB constraint
     @Transactional
     public ShortenResponse shortenUrl(String longUrl) {
-
-        log.info("Creating short URL for: {}", longUrl);
-
-        return urlRepository.findByLongUrl(longUrl)
-                .map(this::buildResponse)
-                .orElseGet(() -> createNewShortUrl(longUrl));
+        log.info("Shortening URL: {}", longUrl);
+        return createShortUrl(longUrl);
     }
 
-
-    private ShortenResponse createNewShortUrl(String longUrl) {
-
+    private ShortenResponse createShortUrl(String longUrl) {
         try {
             long id = snowflakeIdGenerator.generateId();
             String shortCode = Base62Encoder.encode(id);
@@ -53,45 +47,49 @@ public class UrlShortenerService {
                     .createdAt(Instant.now())
                     .build();
 
-            urlRepository.saveAndFlush(url); // IMPORTANT: immediate DB write
-
+            urlRepository.saveAndFlush(url);
             bloomFilter.add(shortCode);
 
-            log.info("Short URL created successfully: {}", shortCode);
+            log.info("Created shortCode={} for longUrl={}", shortCode, longUrl);
 
-            return buildResponse(url);
+            return new ShortenResponse(
+                    appConfig.getBaseUrl() + shortCode,
+                    shortCode
+            );
 
         } catch (DataIntegrityViolationException ex) {
-
-            // Another thread already inserted same longUrl
-            log.warn("Duplicate insert detected, fetching existing record");
+            // Concurrent insert for the same longUrl — DB constraint fired.
+            // Fetch the winner's record and return it.
+            log.warn("Duplicate insert detected for longUrl={}, fetching existing", longUrl);
 
             Url existing = urlRepository.findByLongUrl(longUrl)
-                    .orElseThrow(() ->
-                            new RuntimeException("Race condition resolved but record not found")
-                    );
+                    .orElseThrow(() -> new IllegalStateException(
+                            "DataIntegrityViolationException on insert but longUrl not found " +
+                                    "— constraint may have fired on shortCode collision, not longUrl. " +
+                                    "longUrl=" + longUrl
+                    ));
 
-            return buildResponse(existing);
+            return new ShortenResponse(
+                    appConfig.getBaseUrl() + existing.getShortCode(),
+                    existing.getShortCode()
+            );
         }
     }
 
-
     public String getOriginalUrl(String shortCode) {
-
-        log.info("Resolving shortCode: {}", shortCode);
+        log.info("Resolving shortCode={}", shortCode);
 
         if (!bloomFilter.mightContain(shortCode)) {
             throw new UrlNotFoundException(shortCode);
         }
 
-        String cachedUrl = redisService.get(shortCode);
-
-        if (cachedUrl != null) {
-            log.info("Cache HIT for {}", shortCode);
-            return cachedUrl;
+        String cached = redisService.get(shortCode);
+        if (cached != null) {
+            log.debug("Cache HIT for shortCode={}", shortCode);
+            return cached;
         }
 
-        log.info("Cache MISS for {}", shortCode);
+        log.debug("Cache MISS for shortCode={}", shortCode);
 
         Url url = urlRepository.findByShortCode(shortCode)
                 .orElseThrow(() -> new UrlNotFoundException(shortCode));
@@ -99,13 +97,5 @@ public class UrlShortenerService {
         redisService.set(shortCode, url.getLongUrl());
 
         return url.getLongUrl();
-    }
-
-
-    private ShortenResponse buildResponse(Url url) {
-        return new ShortenResponse(
-                appConfig.getBaseUrl() + url.getShortCode(),
-                url.getShortCode()
-        );
     }
 }
