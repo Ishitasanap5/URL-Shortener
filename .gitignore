@@ -1,0 +1,22 @@
+# IDEs & Editors
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# Backend (Spring Boot / Maven)
+urlshortener/target/
+.mvn/wrapper/maven-wrapper.jar
+!urlshortener/.mvn/wrapper/maven-wrapper.jar
+
+# Frontend (Node / Vite / React)
+url-shortener-ui/node_modules/
+url-shortener-ui/dist/
+url-shortener-ui/dist-ssr/
+url-shortener-ui/*.local
+
+# Environment & OS files
+.env
+*.log
+.DS_Store
