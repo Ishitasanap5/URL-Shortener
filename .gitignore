@@ -4,11 +4,21 @@
 *.iml
 *.iws
 *.ipr
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
 
 # Backend (Spring Boot / Maven)
+target/
 urlshortener/target/
 .mvn/wrapper/maven-wrapper.jar
 !urlshortener/.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
 
 # Frontend (Node / Vite / React)
 url-shortener-ui/node_modules/
@@ -16,7 +26,18 @@ url-shortener-ui/dist/
 url-shortener-ui/dist-ssr/
 url-shortener-ui/*.local
 
+# NetBeans & Gradle
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
 # Environment & OS files
 .env
 *.log
 .DS_Store
+HELP.md
