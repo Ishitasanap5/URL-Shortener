@@ -1,316 +1,218 @@
-# Distributed URL Shortener
+# URL Shortener
 
-A production-grade URL shortening service built with Java 17 and Spring Boot 4. Designed for high throughput with sub-10ms redirect latency at scale, using a layered architecture: Bloom filter pre-check → Redis cache → MySQL persistence, with Kafka-backed async click analytics.
+A scalable URL shortener built with **Spring Boot**. It generates short links with distributed-style unique IDs, serves redirects from a **Redis** cache guarded by a **Bloom filter**, and records click analytics asynchronously through **Kafka**.
 
 ---
 
-## Tech Stack
+## Features
 
-| Layer | Technology |
-|---|---|
-| Language | Java 17 |
-| Framework | Spring Boot 4 |
-| Primary DB | MySQL 8 |
-| Cache | Redis |
-| Messaging | Apache Kafka |
-| ID Generation | Custom Snowflake |
-| Build | Maven |
+- **Short link creation**: `POST /shorten` turns a long URL into a short code. Submitting the same URL again returns the existing link instead of creating a duplicate.
+- **Fast redirects**: `GET /{shortCode}` redirects to the original URL. Lookups go Bloom filter, then Redis, then MySQL.
+- **Snowflake IDs + Base62**: each link gets a 64-bit time-ordered ID, encoded in Base62 for a short, URL-safe code. No central counter and no random-collision retries.
+- **Bloom filter**: an in-memory filter rejects codes that were never created, so invalid requests never reach Redis or the database. It is rebuilt from MySQL on startup.
+- **Async click analytics**: every redirect publishes a click event to Kafka. A consumer stores it in MySQL, so tracking never slows down the redirect.
+- **Analytics API**: `GET /analytics/{shortCode}` returns total clicks, clicks per day and top referrers.
+- **Rate limiting**: 100 requests per minute per IP, tracked in Redis.
+- **Bot / anomaly scoring**: each click is scored on user-agent and referrer signals, and suspicious traffic is logged.
+- **Clean error handling**: consistent JSON errors for validation failures, unknown codes and unexpected exceptions.
 
 ---
 
 ## Architecture
 
-### High-Level System Design
-
 ```mermaid
-graph TD
-    Client -->|POST /shorten| API[Spring Boot API]
-    Client -->|GET /{shortCode}| API
-
-    API -->|Shorten| RLS[RateLimiterService]
-    RLS -->|Sliding window\nper IP in Redis| Redis
-
-    API -->|Shorten| USS[UrlShortenerService]
-    USS -->|1. findByLongUrl| MySQL[(MySQL\nurls table)]
-    USS -->|2. Snowflake ID\n+ Base62 encode| SNF[SnowflakeIdGenerator]
-    USS -->|3. Save new URL| MySQL
-    USS -->|4. bloomFilter.add| BF[BloomFilter\nin-memory]
-
-    API -->|Redirect| USS
-    USS -->|1. bloomFilter.mightContain| BF
-    USS -->|2. Cache hit?| Redis
-    USS -->|3. Cache miss → fetch + cache| MySQL
-
-    API -->|Async| KP[KafkaProducerService]
-    KP -->|click-events topic| Kafka[(Kafka)]
-    Kafka -->|KafkaListener| KC[KafkaConsumerService]
-    KC -->|Save ClickEvent| MySQL
-
-    API -->|GET /analytics/:code| AQS[AnalyticsQueryService]
-    AQS -->|totalClicks\ndailyClicks\nreferrers| MySQL
+flowchart LR
+    C[Client] -->|POST /shorten| API[Spring Boot API]
+    C -->|GET /code| API
+    API --> RL{Rate limit<br/>Redis counter}
+    RL -->|over limit| R429[429 Too Many Requests]
+    RL -->|ok| BF{Bloom filter}
+    BF -->|definitely absent| R404[404 Not Found]
+    BF -->|maybe present| RC{Redis cache}
+    RC -->|hit| RED[302 Redirect]
+    RC -->|miss| DB[(MySQL)]
+    DB -->|populate cache| RED
+    API -->|click event| K[[Kafka: click-events]]
+    K --> CON[Consumer + anomaly scoring]
+    CON --> DB
 ```
+
+**Create flow:** Snowflake ID, then Base62 code, saved to MySQL, then added to the Bloom filter. A unique constraint on the long URL handles concurrent duplicate requests by returning the existing record.
+
+**Redirect flow:** rate-limit check, Bloom filter, Redis (7-day TTL), MySQL fallback, then a click event goes to Kafka and the client is redirected.
 
 ---
 
-### Shorten URL Flow
+## Tech stack
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant F as RateLimitFilter
-    participant S as UrlShortenerService
-    participant DB as MySQL
-    participant R as Redis
-    participant BF as BloomFilter
-
-    C->>F: POST /shorten { longUrl }
-    F->>F: increment Redis counter for IP
-    F-->>C: 429 if > 100 req/min
-
-    F->>S: shortenUrl(longUrl)
-    S->>DB: findByLongUrl(longUrl)
-
-    alt URL already exists
-        DB-->>S: existing Url entity
-        S-->>C: { shortUrl, shortCode }
-    else New URL
-        S->>S: Snowflake.generateId()
-        S->>S: Base62.encode(id)
-        S->>DB: save(Url)
-        S->>BF: bloomFilter.add(shortCode)
-        S-->>C: { shortUrl, shortCode }
-    end
-```
+| Area | Technology |
+| --- | --- |
+| Language / framework | Java, Spring Boot, Spring Web, Spring Data JPA |
+| Database | MySQL |
+| Cache and rate limiting | Redis |
+| Messaging | Apache Kafka |
+| Validation | Jakarta Bean Validation |
+| Testing | JUnit 5 |
 
 ---
 
-### Redirect Flow
+## Getting started
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant S as UrlShortenerService
-    participant BF as BloomFilter
-    participant R as Redis
-    participant DB as MySQL
-    participant K as Kafka
+### Prerequisites
 
-    C->>S: GET /{shortCode}
-    S->>BF: mightContain(shortCode)
+- Java 17 or newer
+- Maven (or the project's wrapper)
+- MySQL, Redis and Kafka running locally
 
-    alt Bloom filter miss (definitely not exists)
-        BF-->>S: false
-        S-->>C: 404 Not Found
-    else Bloom filter pass
-        BF-->>S: true
-        S->>R: get("url:" + shortCode)
+Example setup for MySQL and Redis with Docker:
 
-        alt Cache HIT
-            R-->>S: longUrl
-        else Cache MISS
-            S->>DB: findByShortCode(shortCode)
-            DB-->>S: Url entity
-            S->>R: set("url:" + shortCode, longUrl, TTL=7d)
-        end
+```bash
+docker run -d --name mysql -p 3306:3306 \
+  -e MYSQL_ROOT_PASSWORD=changeme -e MYSQL_DATABASE=urlshortener mysql:8
 
-        S-->>C: 302 Redirect → longUrl
-        S--)K: sendClickEvent (async, non-blocking)
-    end
+docker run -d --name redis -p 6379:6379 redis:7
 ```
+
+Start a Kafka broker on `localhost:9092` using your preferred setup.
+
+### Configure
+
+Settings live in `src/main/resources/application.properties`. Database credentials have no defaults, so set them as environment variables:
+
+```bash
+export DB_USERNAME=root
+export DB_PASSWORD=changeme
+```
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `DB_USERNAME` | MySQL username | none (required) |
+| `DB_PASSWORD` | MySQL password | none (required) |
+| `SPRING_DATASOURCE_URL` | JDBC URL | `jdbc:mysql://localhost:3306/urlshortener` |
+| `SPRING_DATA_REDIS_HOST` | Redis host | `localhost` |
+| `SPRING_KAFKA_BOOTSTRAP_SERVERS` | Kafka brokers | `localhost:9092` |
+
+Other properties you may want to change:
+
+| Property | Description | Default |
+| --- | --- | --- |
+| `app.base-url` | Prefix for returned short URLs | `http://localhost:8080/` |
+| `app.machine-id` | Snowflake machine ID (0-1023). **Must be unique per running instance.** | `1` |
+| `app.trust-proxy-headers` | Whether to trust `X-Forwarded-For` | `false` |
+
+### Run
+
+```bash
+./mvnw spring-boot:run
+```
+
+The API starts on http://localhost:8080. The Kafka topic is `click-events`, and the consumer group is `analytics-group-v3`.
+
+### Run the tests
+
+```bash
+./mvnw test
+```
+
+The suite covers the Base62 encoder, Bloom filter, Snowflake generator, rate limiter and URL shortener service (cache hit and miss, Bloom filter short-circuit, duplicate inserts).
 
 ---
 
-### Snowflake ID Structure
+## API
 
-```
- 63        22        12        0
- |---------|---------|---------|
- 41 bits   10 bits   12 bits
- timestamp machineId sequence
-```
+### Shorten a URL
 
-- **41 bits** timestamp (ms since custom epoch Jan 1 2024) → ~69 years of IDs
-- **10 bits** machine ID → 1024 unique nodes
-- **12 bits** sequence → 4096 IDs per millisecond per node
-- **Total throughput:** ~4M IDs/sec across 1024 nodes, zero coordination required
+```http
+POST /shorten
+Content-Type: application/json
 
----
-
-### Bloom Filter
-
-Pre-check layer before Redis and MySQL on every redirect. Eliminates DB hits for non-existent short codes.
-
-```
-mightContain(shortCode)
-    → hash1(code) = (hashCode & 0x7fff) % size
-    → hash2(code) = (hashCode ^ hashCode>>>16 & 0x7fff) % size
-    → hash3(code) = (h1 + h2) % size
-    → returns bitSet[h1] && bitSet[h2] && bitSet[h3]
+{ "longUrl": "https://example.com/some/very/long/path" }
 ```
 
-| Parameter | Value |
-|---|---|
-| Bit array size | 1,000,000 bits (~125 KB) |
-| Hash functions | 3 |
-| False positive rate | < 1% at low cardinality |
-| Startup hydration | Loaded from DB on `ApplicationRunner` |
-| Thread safety | `add()` synchronized |
+Response `200 OK`:
 
----
-
-### Rate Limiter
-
-Sliding window counter per IP using Redis atomic `INCR` + `EXPIRE`.
-
-```
-key = "rate_limit:{ip}"
-count = INCR key
-if count == 1 → EXPIRE key 60s
-if count > 100 → return 429
-```
-
-Window resets after 60s from first request in that window. Handles `X-Forwarded-For` for clients behind proxies.
-
----
-
-### Kafka Click Analytics Pipeline
-
-```mermaid
-graph LR
-    Redirect[GET /shortCode] -->|non-blocking| Producer[KafkaProducerService]
-    Producer -->|topic: click-events\nkey: shortCode| Kafka[(Kafka Broker)]
-    Kafka -->|group: analytics-group| Consumer[KafkaConsumerService]
-    Consumer -->|persist| DB[(click_events table)]
-    DB -->|aggregation queries| Analytics[GET /analytics/shortCode]
-```
-
-Analytics decoupled from the redirect hot path — redirect latency is never blocked by DB writes.
-
----
-
-## Database Schema
-
-```sql
-CREATE TABLE urls (
-    id          BIGINT PRIMARY KEY,          -- Snowflake ID
-    short_code  VARCHAR(10)  NOT NULL UNIQUE,
-    long_url    TEXT         NOT NULL,
-    created_at  TIMESTAMP,
-    version     BIGINT,                      -- optimistic locking
-    INDEX idx_long_url (long_url(255))       -- deduplication lookup
-);
-
-CREATE TABLE click_events (
-    id          BIGINT AUTO_INCREMENT PRIMARY KEY,
-    short_code  VARCHAR(10),
-    clicked_at  TIMESTAMP,
-    ip_address  VARCHAR(45),
-    user_agent  TEXT,
-    referrer    TEXT,
-    INDEX idx_short_code (short_code)        -- analytics queries
-);
-```
-
----
-
-## API Reference
-
-### POST /shorten
-
-Shorten a long URL. Idempotent — same long URL always returns the same short code.
-
-**Request**
-```json
-{ "longUrl": "https://example.com/very/long/path" }
-```
-
-**Response** `200 OK`
 ```json
 {
-  "shortUrl": "http://localhost:8080/aB3xYz",
-  "shortCode": "aB3xYz"
+  "shortUrl": "http://localhost:8080/AbC123",
+  "shortCode": "AbC123"
 }
 ```
 
-**Errors**
-- `400` — blank URL or invalid URL format
-- `429` — rate limit exceeded (> 100 req/min per IP)
+An empty or invalid URL returns `400` with an error message.
 
----
+### Redirect
 
-### GET /{shortCode}
+```http
+GET /{shortCode}
+```
 
-Redirect to the original URL. Fires an async Kafka click event.
+Redirects to the original URL. Returns `404` if the code does not exist.
 
-**Response** `302 Found` → `Location: <originalUrl>`
+### Analytics
 
-**Errors**
-- `404` — short code not found
+```http
+GET /analytics/{shortCode}
+```
 
----
-
-### GET /analytics/{shortCode}
-
-Click analytics for a short URL.
-
-**Response** `200 OK`
 ```json
 {
-  "totalClicks": 1482,
+  "totalClicks": 42,
   "dailyClicks": [
-    { "date": "2024-06-01", "clicks": 312 },
-    { "date": "2024-06-02", "clicks": 405 }
+    { "date": "2026-10-10", "count": 17 },
+    { "date": "2026-10-11", "count": 25 }
   ],
-  "referrers": [
-    { "referrer": "direct", "clicks": 890 },
-    { "referrer": "https://twitter.com", "clicks": 592 }
+  "referrerStats": [
+    { "referrer": "direct", "count": 30 },
+    { "referrer": "https://twitter.com/", "count": 12 }
   ]
 }
 ```
 
----
+Clicks with no referrer are grouped as `direct`.
 
-## Running Locally
+### Errors
 
-**Prerequisites:** Java 17, Maven, MySQL 8, Redis, Kafka
+All errors share one shape:
 
-```bash
-# 1. Clone
-git clone https://github.com/Ishitasanap5/URL-Shortener.git
-cd URL-Shortener
-
-# 2. Create DB
-mysql -u root -p -e "CREATE DATABASE urlshortener;"
-
-# 3. Configure
-# src/main/resources/application.properties
-spring.datasource.url=jdbc:mysql://localhost:3306/urlshortener
-spring.datasource.username=<your_username>
-spring.datasource.password=<your_password>
-app.base-url=http://localhost:8080/
-
-# 4. Start Kafka (if using Docker)
-docker run -d -p 9092:9092 apache/kafka:3.7.0
-
-# 5. Run
-mvn spring-boot:run
+```json
+{ "timestamp": "2026-10-12T10:15:30Z", "status": 404, "message": "..." }
 ```
 
+Rate-limited requests receive `429 Too Many Requests`.
+
 ---
 
-## Design Decisions
+## Design notes
 
-**Why Snowflake IDs over UUID?**
-UUIDs are random → cause B-tree index fragmentation on insert-heavy workloads. Snowflake IDs are monotonically increasing → sequential inserts, better index locality, smaller storage (8 bytes vs 16 bytes).
+- **Why Snowflake IDs?** Each instance generates unique IDs on its own from a timestamp, a machine ID and a sequence number, so there is no database round trip or shared counter. Up to 4096 IDs per millisecond per instance.
+- **Why a Bloom filter?** It answers "has this code ever existed?" in memory. A "no" is always correct, so junk or scanned codes never touch Redis or MySQL. A "yes" can be a false positive, so the database stays the source of truth. The filter is sized for about 1 million codes.
+- **Why Kafka for clicks?** Redirect latency stays low because the click is published and the response returns immediately. If Kafka is unavailable, the redirect still works and the failure is logged. The consumer retries failed messages twice before giving up.
+- **Rate limiter behavior:** if Redis is unreachable the limiter fails open, so a Redis outage does not take the service down.
+- **Anomaly scoring:** a click scores higher for a missing or script-like user-agent (curl, python, wget and similar) and for a missing referrer. Scores of 0.75 or above are logged as anomalies.
 
-**Why Bloom filter before Redis?**
-Redirect requests for non-existent short codes (typos, scraping) would otherwise hit Redis first, then MySQL on a miss. The in-memory Bloom filter eliminates this entire class of lookups at the cost of ~125KB RAM and a guaranteed-false response.
+---
 
-**Why Kafka for click analytics?**
-Synchronous DB writes on the redirect path would add 2–5ms latency per redirect under load. Kafka decouples the hot path from analytics persistence entirely. Click events are durable in Kafka and written to MySQL asynchronously by the consumer group.
+## Known limitations
 
-**Why cache-aside over write-through?**
-Write-through caches every new URL immediately. Cache-aside only populates Redis on first access, keeping memory usage proportional to actual traffic patterns rather than total URL count.
+- Run multiple instances with **different** `app.machine-id` values, or IDs can collide.
+- The rate limiter reads `X-Forwarded-For` directly, so clients can spoof it unless the service sits behind a trusted proxy. The `app.trust-proxy-headers` setting is not applied there yet.
+- The Bloom filter lives in each instance's memory and is rebuilt from MySQL on startup, which gets slower as the table grows.
+- Anomaly scores are only logged, not stored or acted on.
+- CORS currently allows only `http://localhost:5173`.
+- No authentication, custom aliases or link expiry yet.
 
-**Why Base62 over MD5/SHA hash?**
-Hash-based approaches can collide and produce codes longer than needed. Base62 encoding of a Snowflake ID produces a deterministic, collision-free 7–8 character code (62^7 ≈ 3.5 trillion combinations).
+---
+
+## Roadmap ideas
+
+- Custom aliases and expiring links
+- User accounts and per-user link management
+- Store anomaly scores and block abusive traffic
+- Redis-backed or counting Bloom filter shared across instances
+- Docker Compose file for one-command local setup
+- QR code generation for short links
+
+
+## License
+
+Add your license here.
