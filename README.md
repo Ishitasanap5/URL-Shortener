@@ -211,8 +211,3 @@ Rate-limited requests receive `429 Too Many Requests`.
 - Redis-backed or counting Bloom filter shared across instances
 - Docker Compose file for one-command local setup
 - QR code generation for short links
-
-
-## License
-
-Add your license here.
