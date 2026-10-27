@@ -13,8 +13,11 @@ import org.springframework.context.annotation.Configuration;
 public class CoreBeansConfig {
 
     @Bean
-    public BloomFilter bloomFilter() {
-        return new BloomFilter(1_000_000);
+    public BloomFilter bloomFilter(
+            @Value("${app.bloom.expected-elements:1000000}") long expectedElements,
+            @Value("${app.bloom.false-positive-rate:0.01}") double falsePositiveRate
+    ) {
+        return new BloomFilter(expectedElements, falsePositiveRate);
     }
 
     @Bean

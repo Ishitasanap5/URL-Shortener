@@ -20,22 +20,29 @@ public class RateLimiterService {
 
     public boolean isAllowed(String ip) {
         String key = KEY_PREFIX + ip;
-        Long count = redisService.increment(key);
 
-        if (count == null) {
-            log.error("Redis returned null for increment on key={}. Failing open.", key);
+        try {
+            Long count = redisService.increment(key);
+
+            if (count == null) {
+                log.error("Redis returned null for increment on key={}. Failing open.", key);
+                return true;
+            }
+
+            if (count == 1) {
+                redisService.expire(key, WINDOW);
+            }
+
+            if (count > MAX_REQUESTS) {
+                log.warn("Rate limit exceeded for ip={}, count={}", ip, count);
+                return false;
+            }
+
+            return true;
+
+        } catch (RuntimeException ex) {
+            log.error("Redis unavailable for rate limiting on key={}. Failing open.", key, ex);
             return true;
         }
-
-        if (count == 1) {
-            redisService.expire(key, WINDOW);
-        }
-
-        if (count > MAX_REQUESTS) {
-            log.warn("Rate limit exceeded for ip={}, count={}", ip, count);
-            return false;
-        }
-
-        return true;
     }
 }

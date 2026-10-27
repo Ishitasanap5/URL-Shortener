@@ -13,7 +13,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 
@@ -28,48 +27,49 @@ public class UrlShortenerService {
     private final SnowflakeIdGenerator snowflakeIdGenerator;
     private final BloomFilter bloomFilter;
 
-    @Transactional
     public ShortenResponse shortenUrl(String longUrl) {
         log.info("Shortening URL: {}", longUrl);
-        return createShortUrl(longUrl);
+
+        // Fast path: reuse an existing short URL (looked up by SHA-256 hash).
+        String hash = Url.sha256(longUrl);
+
+        return urlRepository.findByLongUrlHash(hash)
+                .map(existing -> toShortenResponse(existing.getShortCode()))
+                .orElseGet(() -> createShortUrl(longUrl));
     }
 
     private ShortenResponse createShortUrl(String longUrl) {
-        try {
-            long id = snowflakeIdGenerator.generateId();
-            String shortCode = Base62Encoder.encode(id);
+        long id = snowflakeIdGenerator.generateId();
+        String shortCode = Base62Encoder.encode(id);
 
-            Url url = Url.builder()
-                    .id(id)
-                    .shortCode(shortCode)
-                    .longUrl(longUrl)
-                    .createdAt(Instant.now())
-                    .build();
+        Url url = Url.builder()
+                .id(id)
+                .shortCode(shortCode)
+                .longUrl(longUrl)
+                .longUrlHash(Url.sha256(longUrl))
+                .createdAt(Instant.now())
+                .build();
+
+        try {
 
             urlRepository.saveAndFlush(url);
+
             bloomFilter.add(shortCode);
 
             log.info("Created shortCode={} for longUrl={}", shortCode, longUrl);
 
-            return new ShortenResponse(
-                    appConfig.getBaseUrl() + shortCode,
-                    shortCode
-            );
+            return toShortenResponse(shortCode);
 
         } catch (DataIntegrityViolationException ex) {
-            log.warn("Duplicate insert detected for longUrl={}, fetching existing", longUrl);
 
-            Url existing = urlRepository.findByLongUrl(longUrl)
-                    .orElseThrow(() -> new IllegalStateException(
-                            "DataIntegrityViolationException on insert but longUrl not found " +
-                                    "— constraint may have fired on shortCode collision, not longUrl. " +
-                                    "longUrl=" + longUrl
-                    ));
-
-            return new ShortenResponse(
-                    appConfig.getBaseUrl() + existing.getShortCode(),
-                    existing.getShortCode()
+            log.warn(
+                    "Insert constraint violation for longUrl={}. Checking for an existing URL.",
+                    longUrl
             );
+
+            return urlRepository.findByLongUrlHash(Url.sha256(longUrl))
+                    .map(existing -> toShortenResponse(existing.getShortCode()))
+                    .orElseThrow(() -> ex);
         }
     }
 
@@ -81,6 +81,7 @@ public class UrlShortenerService {
         }
 
         String cached = redisService.get(shortCode);
+
         if (cached != null) {
             log.debug("Cache HIT for shortCode={}", shortCode);
             return cached;
@@ -94,5 +95,12 @@ public class UrlShortenerService {
         redisService.set(shortCode, url.getLongUrl());
 
         return url.getLongUrl();
+    }
+
+    private ShortenResponse toShortenResponse(String shortCode) {
+        return new ShortenResponse(
+                appConfig.getBaseUrl() + shortCode,
+                shortCode
+        );
     }
 }

@@ -1,22 +1,17 @@
-version: '3.8'
-
 services:
 
-  mysql:
-    image: mysql:8.0
-    container_name: url-mysql
+  postgres:
+    image: postgres:16-alpine
+    container_name: url-postgres
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: urlshortener
-      MYSQL_USER: ishita
-      MYSQL_PASSWORD: NewPassword123
-    ports:
-      - "3307:3306"
+      POSTGRES_DB: urlshortener_db
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - mysql_data:/var/lib/mysql
+      - pg_data:/var/lib/postgresql/data
     restart: always
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d urlshortener_db"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -53,6 +48,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_HEAP_OPTS: "-Xmx256m -Xms256m"
       KAFKA_LOG4J_LOGGERS: "org.apache.kafka.image.loader.MetadataLoader=WARN"
     restart: always
     healthcheck:
@@ -67,15 +63,15 @@ services:
     ports:
       - "8080:8080"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/urlshortener
-      DB_USERNAME: ishita
-      DB_PASSWORD: NewPassword123
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/urlshortener_db
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      APP_BASE_URL: http://localhost:8080/
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080/}
       APP_MACHINE_ID: 1
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -84,4 +80,4 @@ services:
     restart: on-failure
 
 volumes:
-  mysql_data:
+  pg_data:

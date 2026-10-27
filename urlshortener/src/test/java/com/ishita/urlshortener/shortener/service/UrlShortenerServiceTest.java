@@ -57,6 +57,25 @@ class UrlShortenerServiceTest {
     }
 
     @Test
+    void shortenUrl_existingUrl_returnsExistingWithoutInserting() {
+        String longUrl = "https://example.com/already";
+        Url existing = Url.builder()
+                .id(1L)
+                .shortCode("existingCode")
+                .longUrl(longUrl)
+                .createdAt(Instant.now())
+                .build();
+        when(urlRepository.findByLongUrlHash(Url.sha256(longUrl)))
+                .thenReturn(Optional.of(existing));
+
+        ShortenResponse response = service.shortenUrl(longUrl);
+
+        assertEquals("existingCode", response.shortCode());
+        verify(urlRepository, never()).saveAndFlush(any(Url.class));
+        verifyNoInteractions(snowflakeIdGenerator);
+    }
+
+    @Test
     void shortenUrl_concurrentDuplicateInsert_returnsExistingRecord() {
         String longUrl = "https://example.com/dup";
         when(snowflakeIdGenerator.generateId()).thenReturn(2000L);
@@ -69,7 +88,8 @@ class UrlShortenerServiceTest {
                 .longUrl(longUrl)
                 .createdAt(Instant.now())
                 .build();
-        when(urlRepository.findByLongUrl(longUrl)).thenReturn(Optional.of(existing));
+        when(urlRepository.findByLongUrlHash(Url.sha256(longUrl)))
+                .thenReturn(Optional.empty(), Optional.of(existing));
 
         ShortenResponse response = service.shortenUrl(longUrl);
 
@@ -81,16 +101,15 @@ class UrlShortenerServiceTest {
     }
 
     @Test
-    void shortenUrl_duplicateInsertButNoMatchingLongUrl_throwsIllegalState() {
-        // Constraint fired on the shortCode collision, not longUrl — the
-        // findByLongUrl lookup then legitimately comes back empty.
+    void shortenUrl_duplicateInsertButNoMatchingLongUrl_rethrowsOriginalException() {
         String longUrl = "https://example.com/edge-case";
         when(snowflakeIdGenerator.generateId()).thenReturn(3000L);
         when(urlRepository.saveAndFlush(any(Url.class)))
                 .thenThrow(new DataIntegrityViolationException("unique constraint violated"));
-        when(urlRepository.findByLongUrl(longUrl)).thenReturn(Optional.empty());
+        when(urlRepository.findByLongUrlHash(Url.sha256(longUrl)))
+                .thenReturn(Optional.empty());
 
-        assertThrows(IllegalStateException.class, () -> service.shortenUrl(longUrl));
+        assertThrows(DataIntegrityViolationException.class, () -> service.shortenUrl(longUrl));
     }
 
     @Test
